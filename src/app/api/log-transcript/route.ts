@@ -1,75 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { BigQuery } from "@google-cloud/bigquery";
 
-export async function POST(req: NextRequest) {
+const bigquery = new BigQuery();
+
+export async function POST(request: Request) {
   try {
-    const body = await req.json();
-    const { timestamp, sessionId, speaker, transcript } = body;
-    
-    console.log('📝 Logging transcript to Cloud Run:', { 
-      timestamp, 
-      sessionId, 
-      speaker,
-      transcriptLength: transcript?.length 
-    });
-    
-    // Get Cloud Run configuration from environment variables
-    const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_LOGGER_URL;
-    const apiKey = process.env.CLOUD_RUN_API_KEY;
-    
-    if (!cloudRunUrl || !apiKey) {
-      console.error('❌ Missing Cloud Run configuration:', {
-        hasUrl: !!cloudRunUrl,
-        hasKey: !!apiKey
-      });
-      return NextResponse.json(
-        { error: 'Cloud Run not configured' },
-        { status: 500 }
-      );
-    }
-    
-    console.log('🚀 Calling Cloud Run at:', cloudRunUrl);
-    
-    // Call Cloud Run function
-    const response = await fetch(cloudRunUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey,
-      },
-      body: JSON.stringify({
+    const { timestamp, sessionId, speaker, transcript, module } = await request.json();
+
+    const datasetId = "engaging_life";
+    const tableId = "transcripts";
+
+    const rows = [
+      {
         timestamp,
-        sessionId,
+        session_id: sessionId,
         speaker,
         transcript,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Cloud Run error:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText
-      });
-      throw new Error(`Cloud Run returned ${response.status}: ${errorText}`);
-    }
-
-    const result = await response.json();
-    console.log('✅ Successfully logged to BigQuery via Cloud Run:', result);
-    
-    return NextResponse.json({ 
-      success: true,
-      cloudRunResponse: result
-    });
-    
-  } catch (error) {
-    console.error('❌ Logging error:', error);
-    return NextResponse.json(
-      { 
-        error: 'Failed to log transcript',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        module,
       },
-      { status: 500 }
-    );
+    ];
+
+    await bigquery.dataset(datasetId).table(tableId).insert(rows);
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("BigQuery insert error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
