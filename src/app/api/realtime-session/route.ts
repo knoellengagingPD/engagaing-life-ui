@@ -1,56 +1,32 @@
-// src/app/api/realtime-session/route.ts
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs"; // important for server-side fetch + secrets
-
 export async function POST() {
-  try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "Missing OPENAI_API_KEY in environment variables." },
-        { status: 500 }
-      );
-    }
+  const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-realtime-preview",
+      voice: "alloy",
+      instructions: `
+You are Engaging Purpose — a calm, thoughtful voice guide helping people reflect
+on purpose, relationships, work, and meaning. Ask reflective questions slowly,
+one at a time. Be warm and human.
+      `,
+      modalities: ["text", "audio"],
+    }),
+  });
 
-    // This creates an ephemeral client secret for the browser.
-    // Docs: POST /v1/realtime/client_secrets :contentReference[oaicite:1]{index=1}
-    const sessionConfig = {
-      session: {
-        type: "realtime",
-        model: "gpt-realtime",
-        audio: {
-          output: { voice: "marin" },
-        },
-        // Optional: you can also include other session fields later.
-      },
-    };
-
-    const resp = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(sessionConfig),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      return NextResponse.json(
-        { error: "Failed to create client secret", details: text },
-        { status: resp.status }
-      );
-    }
-
-    const data = await resp.json();
-
-    // data.value is the ephemeral client secret (safe for browser use). :contentReference[oaicite:2]{index=2}
-    return NextResponse.json({ clientSecret: data.value });
-  } catch (err: any) {
+  if (!response.ok) {
+    const err = await response.text();
     return NextResponse.json(
-      { error: "Server error creating realtime session", details: String(err?.message ?? err) },
-      { status: 500 }
+      { error: err },
+      { status: response.status }
     );
   }
+
+  const data = await response.json();
+  return NextResponse.json(data);
 }
