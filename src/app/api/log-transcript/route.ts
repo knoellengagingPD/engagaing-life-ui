@@ -1,31 +1,48 @@
 import { NextResponse } from "next/server";
-import { BigQuery } from "@google-cloud/bigquery";
+import { kv } from "@vercel/kv";
 
-const bigquery = new BigQuery();
+type TranscriptLog = {
+  timestamp: string;
+  sessionId: string;
+  speaker: string;
+  transcript: string;
+  module?: string;
+  productKey?: string;
+};
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const { timestamp, sessionId, speaker, transcript, module } =
-      await request.json();
+    const body = (await req.json()) as TranscriptLog;
 
-    const datasetId = "engaging_life";
-    const tableId = "transcripts";
+    if (!body?.sessionId || !body?.speaker || !body?.transcript) {
+      return NextResponse.json(
+        { ok: false, error: "Missing required fields: sessionId, speaker, transcript" },
+        { status: 400 }
+      );
+    }
 
-    await bigquery.dataset(datasetId).table(tableId).insert([
-      {
-        timestamp,
-        session_id: sessionId,
-        speaker,
-        transcript,
-        module,
-      },
-    ]);
+    const event = {
+      ...body,
+      timestamp: body.timestamp || new Date().toISOString(),
+    };
 
-    return NextResponse.json({ success: true });
+    // Store as an append-only list of events for that session
+    const listKey = `sessions:${body.sessionId}:transcript`;
+
+    await kv.rpush(listKey, JSON.stringify(event));
+
+    // Optional: update a "last updated" pointer
+    await kv.hset(`sessions:${body.sessionId}:meta`, {
+      sessionId: body.sessionId,
+      updatedAt: event.timestamp,
+      module: body.module || "",
+      productKey: body.productKey || "",
+    });
+
+    return NextResponse.json({ ok: true, saved: true });
   } catch (err: any) {
-    console.error("BigQuery insert error:", err);
     return NextResponse.json(
-      { error: err.message || "Insert failed" },
+      { ok: false, error: err?.message || "Unknown error" },
       { status: 500 }
     );
   }
