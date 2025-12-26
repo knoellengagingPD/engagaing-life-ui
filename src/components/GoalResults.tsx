@@ -1,78 +1,71 @@
-'use client';
+import { NextRequest, NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
 
-type GoalAreaResult = {
-  area: string;
-  summary: string;
-  confidence?: number;
-  quotes?: string[];
+type SavedSession = {
+  id: string;
+  product: string;
+  createdAt: string;
+  transcript: string;
+  analysis: any;
 };
 
-type GoalResultsProps = {
-  analysis: {
-    areas: GoalAreaResult[];
-    overallSummary?: string;
-  };
-};
+function jsonError(message: string, status = 400) {
+  return NextResponse.json({ error: message }, { status });
+}
 
-export function GoalResults({ analysis }: GoalResultsProps) {
-  if (!analysis) return null;
+/**
+ * POST /api/session
+ * Body: { product: string, transcript: string, analysis: any }
+ * Returns: { id }
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => null);
+    if (!body) return jsonError('Missing JSON body.');
 
-  return (
-    <div className="w-full max-w-4xl mx-auto mt-12 space-y-10">
+    const product = String(body.product || '').trim();
+    const transcript = String(body.transcript || '').trim();
+    const analysis = body.analysis;
 
-      {/* Overall Summary */}
-      {analysis.overallSummary && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 shadow-sm">
-          <h2 className="text-2xl font-semibold text-blue-900 mb-2">
-            Overall Summary
-          </h2>
-          <p className="text-gray-800 leading-relaxed">
-            {analysis.overallSummary}
-          </p>
-        </div>
-      )}
+    if (!product) return jsonError('Missing product.');
+    if (!transcript) return jsonError('Missing transcript.');
+    if (!analysis) return jsonError('Missing analysis.');
 
-      {/* Per-area cards */}
-      {analysis.areas?.map((area, idx) => (
-        <div
-          key={idx}
-          className="bg-white border rounded-xl shadow-md p-6 space-y-4"
-        >
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-semibold text-gray-900">
-              {area.area}
-            </h3>
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
 
-            {typeof area.confidence === 'number' && (
-              <div className="text-sm font-medium text-gray-600">
-                Confidence: {Math.round(area.confidence * 100)}%
-              </div>
-            )}
-          </div>
+    const session: SavedSession = { id, product, createdAt, transcript, analysis };
 
-          <p className="text-gray-700 leading-relaxed">
-            {area.summary}
-          </p>
+    // Store session
+    await kv.set(`session:${id}`, session);
 
-          {area.quotes && area.quotes.length > 0 && (
-            <div className="mt-4 border-t pt-4">
-              <p className="text-sm font-semibold text-gray-600 mb-2">
-                Supporting quotes
-              </p>
-              <ul className="space-y-2">
-                {area.quotes.map((q, i) => (
-                  <li
-                    key={i}
-                    className="text-sm italic text-gray-700 bg-gray-50 p-3 rounded"
-                  >
-                    “{q}”
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+    // Maintain a simple list per product (latest first)
+    await kv.lpush(`sessions:${product}`, id);
+
+    // Optional: cap list length
+    await kv.ltrim(`sessions:${product}`, 0, 99);
+
+    return NextResponse.json({ id });
+  } catch (e: any) {
+    return jsonError(e?.message || 'Server error.', 500);
+  }
+}
+
+/**
+ * GET /api/session?id=...
+ * Returns the saved session payload
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    if (!id) return jsonError('Missing id.');
+
+    const session = await kv.get<SavedSession>(`session:${id}`);
+    if (!session) return jsonError('Not found.', 404);
+
+    return NextResponse.json(session);
+  } catch (e: any) {
+    return jsonError(e?.message || 'Server error.', 500);
+  }
 }
