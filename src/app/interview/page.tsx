@@ -1,364 +1,279 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { GoalResults, type GoalAnalysis } from '@/components/GoalResults';
+import { useRealtimeTranscription } from '@/lib/useRealtimeTranscription';
 
-type InterviewState = 'idle' | 'running' | 'paused' | 'analyzing' | 'done';
+type Step =
+  | { type: 'transition'; text: string }
+  | { type: 'question'; text: string; section: string };
 
-const PRODUCT = 'engaging-purpose';
+const FLOW: Step[] = [
+  { type: 'transition', text: 'Welcome to Engaging Purpose. We’ll walk through four areas—Family, Friends & Community, Meaningful Work, and Faith or Transcendence. Share only what feels right. Let’s begin with family.' },
 
-// Keep this at 28 so your UI matches “X / 28 Questions”
-const QUESTIONS: string[] = [
-  'Welcome to Engaging Purpose. Before we begin, what role best describes you right now (parent, educator, leader, student, other)?',
-  'In one sentence, what would you like to be different in your life by this time next year?',
-  'When you feel most “on purpose,” what are you usually doing?',
-  'What’s one thing you’re doing now that is pulling you off course?',
-  'What do you want more of in your family life over the next year?',
-  'What do you want less of in your family life over the next year?',
-  'What is one relationship you want to strengthen, and why?',
-  'What’s one boundary that would protect your closest relationships?',
-  'Which friendships energize you most—and what do they have in common?',
-  'Which relationships drain you—and what patterns do you notice?',
-  'What would “meaningful work” look like for you in the next 6–12 months?',
-  'What’s one skill or capability that would make your work life better?',
-  'What’s the biggest obstacle at work (time, confidence, clarity, systems, people, other)?',
-  'If your work improved by 20%, what would be the first sign you’d notice?',
-  'What gives you a sense of meaning or contribution beyond your job?',
-  'Where do you feel stuck or discouraged right now?',
-  'What is one habit you’d like to build that would change your day-to-day life?',
-  'What is one habit you’d like to reduce or remove?',
-  'What do you want your health and energy to feel like most days?',
-  'What environment changes (home/work) would make growth easier?',
-  'What’s a “dream big” change you secretly want, even if it feels hard?',
-  'What would you regret not trying if you look back a year from now?',
-  'What does “purpose/faith” mean to you (spiritual, values, service, integrity, calling, other)?',
-  'What is one value you want to live more consistently?',
-  'Who benefits most if you fully step into your purpose?',
-  'What support do you need (people, schedule, accountability, tools)?',
-  'What would be a realistic first step you could take in the next 7 days?',
-  'Anything else you want me to know before I summarize goals across your four areas?',
+  // FAMILY
+  { type: 'transition', text: 'First, think about your family and the kind of life you want to build together.' },
+  { type: 'question', section: 'FAMILY (Positive Future)', text: 'Imagine your family life a few years from now if it became stronger and more joyful. What does that look like?' },
+  { type: 'question', section: 'FAMILY (Positive Future)', text: 'What kind of spouse, parent, sibling, or son/daughter do you hope to become?' },
+  { type: 'question', section: 'FAMILY (Positive Future)', text: 'What moments, habits, or traditions would help your family thrive?' },
+
+  // FRIENDS & COMMUNITY
+  { type: 'transition', text: 'Thank you. Let’s widen the lens a bit and talk about friendships and community.' },
+  { type: 'transition', text: 'Think about relationships outside your family — the people and communities that give you energy and support.' },
+  { type: 'question', section: 'FRIENDS & COMMUNITY (Positive Future)', text: 'Picture your social life at its best. What friendships or community connections do you want to deepen or develop?' },
+  { type: 'question', section: 'FRIENDS & COMMUNITY (Positive Future)', text: 'What qualities do you hope your friends value in you?' },
+  { type: 'question', section: 'FRIENDS & COMMUNITY (Positive Future)', text: 'How would you like to contribute to your community or the people around you?' },
+
+  // WORK
+  { type: 'transition', text: 'Now let’s shift toward your work and how it fits into a meaningful life.' },
+  { type: 'transition', text: 'Think about work that feels aligned, energizing, and worthwhile.' },
+  { type: 'question', section: 'MEANINGFUL WORK (Positive Future)', text: 'Describe what meaningful work looks like for you—work that uses your strengths and energizes you.' },
+  { type: 'question', section: 'MEANINGFUL WORK (Positive Future)', text: 'If your career grew in the direction you hope for, what would your daily work life be like?' },
+  { type: 'question', section: 'MEANINGFUL WORK (Positive Future)', text: 'What skills or achievements would make you proud in your work life?' },
+
+  // FAITH
+  { type: 'transition', text: 'Next we’ll look at faith or transcendence — whatever helps you feel grounded, guided, or connected to something bigger than yourself.' },
+  { type: 'transition', text: 'Think about your spiritual life, values, or inner grounding.' },
+  { type: 'question', section: 'FAITH / TRANSCENDENCE (Positive Future)', text: 'How would you like your relationship with God or your spiritual life to grow in the coming years?' },
+  { type: 'question', section: 'FAITH / TRANSCENDENCE (Positive Future)', text: 'What experiences or practices would help you feel more grounded and connected to something greater than yourself?' },
+  { type: 'question', section: 'FAITH / TRANSCENDENCE (Positive Future)', text: 'If your spiritual health was flourishing, how would that show up in your daily life?' },
+
+  // NEGATIVE FUTURE
+  { type: 'transition', text: 'You’ve described where you want to go. Now we’ll briefly look at what you want to avoid — the paths that could pull you away from that future.' },
+
+  { type: 'transition', text: 'Starting again with family.' },
+  { type: 'question', section: 'FAMILY (Negative Future Avoidance)', text: 'If family life went in the wrong direction, what problems might emerge?' },
+
+  { type: 'transition', text: 'Now friends and community.' },
+  { type: 'question', section: 'FRIENDS & COMMUNITY (Negative Future Avoidance)', text: 'What social patterns—like isolation, conflict, or disconnection—would you want to avoid?' },
+
+  { type: 'transition', text: 'Next, work.' },
+  { type: 'question', section: 'MEANINGFUL WORK (Negative Future Avoidance)', text: 'If your work life stalled or became stressful, what long-term consequences would worry you?' },
+
+  { type: 'transition', text: 'Finally, faith or transcendence.' },
+  { type: 'question', section: 'FAITH / TRANSCENDENCE (Negative Future Avoidance)', text: 'What spiritual drift or loss of grounding do you hope to prevent?' },
+
+  { type: 'transition', text: 'That completes the reflection. Click “Stop & Analyze” and I’ll summarize themes and goals across the four areas.' },
 ];
 
+function isQuestion(step: Step): step is Extract<Step, { type: 'question' }> {
+  return step.type === 'question';
+}
+
 export default function InterviewPage() {
-  const [state, setState] = useState<InterviewState>('idle');
-  const [qIndex, setQIndex] = useState<number>(0);
-  const [transcriptLines, setTranscriptLines] = useState<string[]>([]);
+  const [isActive, setIsActive] = useState(false);
+  const [index, setIndex] = useState(0);
+  const [transcript, setTranscript] = useState<string[]>([]);
   const [analysis, setAnalysis] = useState<GoalAnalysis | null>(null);
-  const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const intervalRef = useRef<number | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const step = FLOW[index];
+  const total = FLOW.length;
 
-  const totalQuestions = QUESTIONS.length;
+  const progress = useMemo(() => {
+    if (!isActive) return 0;
+    return Math.min(100, Math.round(((index + 1) / total) * 100));
+  }, [index, total, isActive]);
 
-  const progressPct = useMemo(() => {
-    const answered = Math.min(qIndex, totalQuestions);
-    return Math.round((answered / totalQuestions) * 100);
-  }, [qIndex, totalQuestions]);
+  const { status: voiceStatus, error: voiceError, partial, start: startVoice, stop: stopVoice } =
+    useRealtimeTranscription({
+      onFinalTranscript: (finalText) => {
+        // Only treat speech as an answer when we are currently on a QUESTION
+        const current = FLOW[index];
+        if (!isActive) return;
+        if (!current || !isQuestion(current)) return;
 
-  const currentPrompt = useMemo(() => {
-    if (qIndex >= totalQuestions) return 'Interview complete.';
-    return QUESTIONS[qIndex];
-  }, [qIndex, totalQuestions]);
+        setTranscript(prev => [
+          ...prev,
+          `SECTION: ${current.section}`,
+          `Q: ${current.text}`,
+          `A: ${finalText}`,
+        ]);
 
-  // Auto-scroll transcript panel
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcriptLines.length, state]);
+        // Auto-advance after a spoken turn completes
+        setIndex(i => Math.min(i + 1, total - 1));
+      },
+    });
 
-  // Cleanup timer
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    };
-  }, []);
+  const isListening = voiceStatus === 'listening';
 
-  async function startRealtimeSession() {
-    // Optional: keep this call so your existing /api/realtime-session remains used.
-    // If it fails, we don’t hard-stop the demo UI.
-    try {
-      const res = await fetch('/api/realtime-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) return;
-      await res.json();
-    } catch {
-      // ignore
-    }
-  }
-
-  function pushSystemLine(text: string) {
-    setTranscriptLines((prev) => [...prev, `Clarity: ${text}`]);
-  }
-
-  function pushUserLine(text: string) {
-    setTranscriptLines((prev) => [...prev, `You: ${text}`]);
-  }
-
-  function stopTimer() {
-    if (intervalRef.current) window.clearInterval(intervalRef.current);
-    intervalRef.current = null;
-  }
-
-  function startTimer() {
-    stopTimer();
-    // Demo cadence: every ~9s advance to next prompt unless paused/stopped.
-    intervalRef.current = window.setInterval(() => {
-      setQIndex((prev) => {
-        const next = prev + 1;
-        if (next >= totalQuestions) {
-          // When the last question has been shown, auto-finish.
-          // We let state update happen outside this setState to avoid race.
-          window.setTimeout(() => void finishInterview(), 50);
-          return prev; // keep index stable; finishInterview will set it.
-        }
-        pushSystemLine(QUESTIONS[next]);
-        return next;
-      });
-    }, 9000);
-  }
-
-  async function startInterview() {
-    setError(null);
+  function startInterview() {
+    setIsActive(true);
+    setIndex(0);
+    setTranscript([]);
     setAnalysis(null);
-    setSavedSessionId(null);
-    setTranscriptLines([]);
-    setQIndex(0);
-    setState('running');
-
-    // Kick off session token (optional)
-    void startRealtimeSession();
-
-    // First message + prompt
-    pushSystemLine(
-      'Welcome to Engaging Purpose. I’ll guide you through a short interview and then I’ll generate goals in four areas: Family, Friends, Meaningful Work, and Purpose/Faith.'
-    );
-    pushSystemLine(`Question 1: ${QUESTIONS[0]}`);
-
-    // Demo: add a tiny “user” seed so you see the transcript flow
-    window.setTimeout(() => pushUserLine('Ready.'), 1200);
-
-    startTimer();
-  }
-
-  function pauseInterview() {
-    if (state !== 'running') return;
-    setState('paused');
-    stopTimer();
-    pushSystemLine('Paused. Say resume when you are ready.');
-  }
-
-  function resumeInterview() {
-    if (state !== 'paused') return;
-    setState('running');
-    pushSystemLine('Resuming.');
-    startTimer();
-  }
-
-  async function finishInterview() {
-    if (state === 'analyzing' || state === 'done') return;
-
-    stopTimer();
-    setState('analyzing');
     setError(null);
 
-    // Ensure index marks completion for progress UI
-    setQIndex(totalQuestions);
+    // Start mic + realtime transcription immediately
+    startVoice();
+  }
 
-    const transcriptText = transcriptLines.join('\n');
+  function nextManual() {
+    if (!isActive) return;
+
+    // record transitions into transcript for auditing/debugging
+    const current = FLOW[index];
+    if (current?.type === 'transition') {
+      setTranscript(prev => [...prev, `TRANSITION: ${current.text}`]);
+    }
+
+    setIndex(i => Math.min(i + 1, total - 1));
+  }
+
+  async function stopAndAnalyze() {
+    if (!isActive) return;
+
+    setIsActive(false);
+
+    // stop mic / webrtc
+    stopVoice();
 
     try {
-      // 1) Analyze
-      const analyzeRes = await fetch('/api/analyze', {
+      setAnalyzing(true);
+      setError(null);
+
+      const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product: PRODUCT,
-          transcript: transcriptText,
-          areas: ['Family', 'Friends', 'Meaningful Work', 'Purpose/Faith'],
+          transcript,
+          product: 'engaging-purpose',
         }),
       });
 
-      if (!analyzeRes.ok) {
-        const msg = await analyzeRes.text().catch(() => '');
-        throw new Error(msg || 'Analyze failed.');
-      }
+      if (!res.ok) throw new Error(await res.text());
 
-      const analyzeJson = (await analyzeRes.json()) as GoalAnalysis;
-      setAnalysis(analyzeJson);
-
-      // 2) Save to KV
-      const saveRes = await fetch('/api/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product: PRODUCT,
-          transcript: transcriptText,
-          analysis: analyzeJson,
-        }),
-      });
-
-      if (!saveRes.ok) {
-        const msg = await saveRes.text().catch(() => '');
-        throw new Error(msg || 'Save failed.');
-      }
-
-      const saved = (await saveRes.json()) as { id: string };
-      setSavedSessionId(saved.id);
-
-      setState('done');
-      pushSystemLine('Thanks — I’ve generated your Engaging Purpose goal summary.');
+      const data = (await res.json()) as GoalAnalysis;
+      setAnalysis(data);
     } catch (e: any) {
-      setError(e?.message || 'Something went wrong.');
-      setState('done');
+      setError(e?.message || 'Analysis failed');
+    } finally {
+      setAnalyzing(false);
     }
   }
-
-  function stopInterview() {
-    // Stop immediately, then analyze automatically.
-    pushSystemLine('Stopping interview. One moment while I analyze your responses…');
-    void finishInterview();
-  }
-
-  const isRunning = state === 'running';
-  const isPaused = state === 'paused';
-  const isAnalyzing = state === 'analyzing';
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-blue-600 to-blue-800 flex items-center justify-center p-6">
-      <div className="w-full max-w-5xl">
-        {/* Main Card */}
-        <div className="bg-white/95 rounded-2xl shadow-2xl p-10 md:p-12">
-          <h1 className="text-3xl md:text-4xl font-bold text-blue-800 text-center">
-            Welcome to the Engaging Purpose Interview Experience!
-          </h1>
-
-          <p className="mt-4 text-center text-gray-700 max-w-3xl mx-auto">
-            When you start, Clarity will guide you through questions that help you clarify direction, meaning, and next steps.
-            Your responses are private and used to generate goal suggestions in four areas.
+    <div className="min-h-screen bg-gradient-to-b from-blue-600 via-blue-700 to-blue-900 px-4 py-10">
+      <div className="mx-auto max-w-5xl">
+        <div className="bg-white rounded-3xl shadow-xl p-10 text-center">
+          <h1 className="text-4xl font-semibold text-blue-700">Engaging Purpose</h1>
+          <p className="mt-4 text-slate-600 max-w-3xl mx-auto">
+            Speak your answers. I’ll capture them automatically and summarize goals at the end.
           </p>
 
-          {/* Ring */}
-          <div className="mt-10 flex items-center justify-center">
+          {/* Orb (real listening indicator) */}
+          <div className="mt-10 flex justify-center">
             <div
               className={[
-                'h-40 w-40 md:h-44 md:w-44 rounded-full',
-                'border-[14px] border-blue-500/90',
-                'shadow-[0_0_0_10px_rgba(59,130,246,0.12)]',
-                isRunning ? 'animate-pulse' : '',
-                isAnalyzing ? 'opacity-60' : '',
+                'w-40 h-40 rounded-full border-[14px] border-blue-600 bg-white shadow-md',
+                isActive && isListening ? 'animate-pulse' : '',
               ].join(' ')}
-              aria-label="Listening ring"
+              title={isListening ? 'Listening…' : isActive ? 'Connecting…' : 'Idle'}
             />
           </div>
 
           {/* Progress */}
-          <div className="mt-10">
-            <div className="flex items-center justify-between text-sm font-medium text-blue-800">
+          <div className="mt-8 text-left">
+            <div className="flex justify-between text-sm text-slate-600">
               <span>Progress</span>
-              <span>
-                {Math.min(qIndex + (state === 'idle' ? 0 : 1), totalQuestions)} / {totalQuestions} Questions
-              </span>
+              <span>{isActive ? index + 1 : 0} / {total}</span>
             </div>
-            <div className="mt-2 h-3 w-full bg-blue-100 rounded-full overflow-hidden">
+            <div className="mt-2 h-3 bg-slate-200 rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-600 transition-all duration-500"
-                style={{ width: `${Math.min(progressPct, 100)}%` }}
+                className="h-full bg-blue-700 transition-all duration-500"
+                style={{ width: `${progress}%` }}
               />
             </div>
           </div>
 
           {/* Controls */}
-          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button
-              onClick={startInterview}
-              disabled={isRunning || isPaused || isAnalyzing}
-              className="w-full sm:w-auto px-10 py-3 rounded-full text-white font-semibold bg-blue-600 hover:bg-blue-700 transition disabled:opacity-40"
-            >
-              Start
-            </button>
-
-            {!isPaused ? (
+          <div className="mt-8 flex flex-wrap justify-center gap-4">
+            {!isActive ? (
               <button
-                onClick={pauseInterview}
-                disabled={!isRunning}
-                className="w-full sm:w-auto px-10 py-3 rounded-full font-semibold border-2 border-orange-400 text-orange-600 hover:bg-orange-50 transition disabled:opacity-40"
+                onClick={startInterview}
+                className="px-10 py-4 rounded-full bg-blue-700 text-white font-semibold shadow-lg hover:bg-blue-800"
               >
-                Pause
+                Start Interview (Voice)
               </button>
             ) : (
-              <button
-                onClick={resumeInterview}
-                className="w-full sm:w-auto px-10 py-3 rounded-full font-semibold border-2 border-orange-400 text-orange-600 hover:bg-orange-50 transition"
-              >
-                Resume
-              </button>
-            )}
+              <>
+                <button
+                  onClick={stopAndAnalyze}
+                  className="px-10 py-4 rounded-full border-2 border-red-300 text-red-600 font-semibold"
+                >
+                  Stop & Analyze
+                </button>
 
-            <button
-              onClick={stopInterview}
-              disabled={state === 'idle' || isAnalyzing}
-              className="w-full sm:w-auto px-10 py-3 rounded-full font-semibold border-2 border-red-400 text-red-600 hover:bg-red-50 transition disabled: فهم disabled:opacity-40"
-            >
-              Stop
-            </button>
+                <button
+                  onClick={nextManual}
+                  className="px-10 py-4 rounded-full bg-blue-700 text-white font-semibold"
+                >
+                  Next (for transitions)
+                </button>
+              </>
+            )}
           </div>
 
-          {/* Current prompt (clean, like your example) */}
-          {(state !== 'idle') && (
-            <div className="mt-10 text-center text-blue-900">
-              <p className="text-base md:text-lg">
-                {isAnalyzing ? 'Analyzing…' : currentPrompt}
-              </p>
+          {/* Prompt */}
+          <div className="mt-10 bg-blue-50 border border-blue-100 rounded-2xl p-6 text-left">
+            <div className="font-semibold text-blue-900">
+              {isActive ? (step?.type === 'question' ? 'Question (Speak your answer)' : 'Transition') : 'Interview'}
             </div>
-          )}
 
-          {/* Results */}
-          {analysis && (
-            <div className="mt-10">
-              <GoalResults analysis={analysis} />
-              {savedSessionId && (
-                <p className="mt-6 text-center text-sm text-gray-600">
-                  Saved session id: <span className="font-mono">{savedSessionId}</span>
-                </p>
-              )}
+            <div className="mt-2 text-slate-800">
+              {isActive ? step?.text : 'Click Start Interview to begin.'}
             </div>
-          )}
 
-          {error && (
-            <div className="mt-10 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
-              <div className="font-semibold mb-1">Error</div>
-              <div className="text-sm whitespace-pre-wrap">{error}</div>
-              <div className="text-xs mt-2 text-red-600">
-                Tip: If this is “KV not configured”, confirm KV env vars exist in Vercel for Production + Preview.
+            {/* Live partial transcript while speaking */}
+            {isActive && step?.type === 'question' && (
+              <div className="mt-4">
+                <div className="text-sm font-semibold text-slate-600 mb-2">Live transcript</div>
+                <div className="min-h-[52px] rounded-xl border border-slate-200 bg-white p-4">
+                  <span className="text-slate-800">{partial || '…'}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Debug / status */}
+          <div className="mt-6 text-left space-y-2">
+            {isActive && (
+              <div className="text-sm text-slate-600">
+                Voice status: <span className="font-semibold">{voiceStatus}</span>
+              </div>
+            )}
+            {(voiceError || error) && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800">
+                {voiceError || error}
+              </div>
+            )}
+            {analyzing && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-indigo-900">
+                Analyzing your responses…
+              </div>
+            )}
+          </div>
+
+          {/* Transcript preview */}
+          {transcript.length > 0 && (
+            <div className="mt-8 bg-white border rounded-2xl p-6 text-left">
+              <div className="font-semibold mb-2">Transcript (preview)</div>
+              <div className="space-y-2">
+                {transcript.slice(-10).map((line, i) => (
+                  <div key={i} className="text-sm bg-slate-50 border rounded-lg p-2">
+                    {line}
+                  </div>
+                ))}
               </div>
             </div>
           )}
         </div>
 
-        {/* Transcript Panel */}
-        <div className="mt-6 bg-white/95 rounded-2xl shadow-2xl p-6">
-          <div className="text-blue-800 font-semibold mb-2">Transcript</div>
+        {analysis && <GoalResults analysis={analysis} />}
 
-          <div className="max-h-52 overflow-auto rounded-xl bg-blue-50 border border-blue-100 p-4">
-            {transcriptLines.length === 0 ? (
-              <div className="text-sm text-gray-600 italic">
-                Transcript will appear here as the interview runs.
-              </div>
-            ) : (
-              <div className="space-y-2 text-sm text-gray-800">
-                {transcriptLines.map((line, idx) => (
-                  <div key={idx} className="leading-relaxed">
-                    {line}
-                  </div>
-                ))}
-                <div ref={bottomRef} />
-              </div>
-            )}
-          </div>
+        <div className="text-center text-white/70 text-sm mt-10">
+          Engaging Purpose · Voice Interview · Goal Engine
         </div>
       </div>
     </div>
