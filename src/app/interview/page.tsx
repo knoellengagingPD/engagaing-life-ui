@@ -111,7 +111,7 @@ export default function InterviewPage() {
     });
   }
 
-  showFatal = (msg: string) => {
+  const showFatal = (msg: string) => {
     setConnState("error");
     setLastError(msg);
   };
