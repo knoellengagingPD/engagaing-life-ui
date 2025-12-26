@@ -1,71 +1,66 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+'use client';
 
-type SavedSession = {
-  id: string;
-  product: string;
-  createdAt: string;
-  transcript: string;
-  analysis: any;
+export type GoalAreaResult = {
+  area: string;
+  summary: string;
+  confidence?: number; // 0..1
+  quotes?: string[];
 };
 
-function jsonError(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status });
-}
+export type GoalAnalysis = {
+  areas: GoalAreaResult[];
+  overallSummary?: string;
+};
 
-/**
- * POST /api/session
- * Body: { product: string, transcript: string, analysis: any }
- * Returns: { id }
- */
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json().catch(() => null);
-    if (!body) return jsonError('Missing JSON body.');
+type GoalResultsProps = {
+  analysis: GoalAnalysis;
+};
 
-    const product = String(body.product || '').trim();
-    const transcript = String(body.transcript || '').trim();
-    const analysis = body.analysis;
+export function GoalResults({ analysis }: GoalResultsProps) {
+  if (!analysis) return null;
 
-    if (!product) return jsonError('Missing product.');
-    if (!transcript) return jsonError('Missing transcript.');
-    if (!analysis) return jsonError('Missing analysis.');
+  return (
+    <div className="w-full max-w-4xl mx-auto mt-6 space-y-8">
+      {/* Overall Summary */}
+      {analysis.overallSummary && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 shadow-sm">
+          <h2 className="text-2xl font-semibold text-blue-900 mb-2">Overall Summary</h2>
+          <p className="text-gray-800 leading-relaxed">{analysis.overallSummary}</p>
+        </div>
+      )}
 
-    const id = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
+      {/* Per-area cards */}
+      {analysis.areas?.map((area, idx) => (
+        <div key={idx} className="bg-white border rounded-2xl shadow-md p-6 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <h3 className="text-xl font-semibold text-gray-900">{area.area}</h3>
 
-    const session: SavedSession = { id, product, createdAt, transcript, analysis };
+            {typeof area.confidence === 'number' && (
+              <div className="text-sm font-medium text-gray-600 whitespace-nowrap">
+                Confidence: {Math.round(area.confidence * 100)}%
+              </div>
+            )}
+          </div>
 
-    // Store session
-    await kv.set(`session:${id}`, session);
+          <p className="text-gray-700 leading-relaxed">{area.summary}</p>
 
-    // Maintain a simple list per product (latest first)
-    await kv.lpush(`sessions:${product}`, id);
-
-    // Optional: cap list length
-    await kv.ltrim(`sessions:${product}`, 0, 99);
-
-    return NextResponse.json({ id });
-  } catch (e: any) {
-    return jsonError(e?.message || 'Server error.', 500);
-  }
-}
-
-/**
- * GET /api/session?id=...
- * Returns the saved session payload
- */
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
-    if (!id) return jsonError('Missing id.');
-
-    const session = await kv.get<SavedSession>(`session:${id}`);
-    if (!session) return jsonError('Not found.', 404);
-
-    return NextResponse.json(session);
-  } catch (e: any) {
-    return jsonError(e?.message || 'Server error.', 500);
-  }
+          {area.quotes && area.quotes.length > 0 && (
+            <div className="mt-2 border-t pt-4">
+              <p className="text-sm font-semibold text-gray-600 mb-2">Supporting quotes</p>
+              <ul className="space-y-2">
+                {area.quotes.map((q, i) => (
+                  <li
+                    key={i}
+                    className="text-sm italic text-gray-700 bg-gray-50 p-3 rounded-xl border"
+                  >
+                    “{q}”
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
