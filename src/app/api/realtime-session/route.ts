@@ -1,74 +1,55 @@
 // src/app/api/realtime-session/route.ts
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs"; // important for server-side fetch + secrets
 
 export async function POST() {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'Missing OPENAI_API_KEY env var' },
+        { error: "Missing OPENAI_API_KEY in environment variables." },
         { status: 500 }
       );
     }
 
-    // Mint a short-lived client secret for a TRANSCRIPTION session.
-    // This lets the browser connect directly via WebRTC without exposing your main API key.
+    // This creates an ephemeral client secret for the browser.
+    // Docs: POST /v1/realtime/client_secrets :contentReference[oaicite:1]{index=1}
     const sessionConfig = {
       session: {
-        type: 'transcription',
+        type: "realtime",
+        model: "gpt-realtime",
         audio: {
-          input: {
-            noise_reduction: { type: 'near_field' },
-            transcription: {
-              // Supported models include whisper-1, gpt-4o-transcribe, gpt-4o-mini-transcribe, etc.
-              // Pick one you have access to; this is a safe default.
-              model: 'gpt-4o-mini-transcribe',
-              language: 'en',
-              prompt: '',
-            },
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 700,
-            },
-          },
+          output: { voice: "marin" },
         },
+        // Optional: you can also include other session fields later.
       },
     };
 
-    const r = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
-      method: 'POST',
+    const resp = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(sessionConfig),
     });
 
-    const data = await r.json();
-
-    // The docs show `value` as the ephemeral key.
-    // Return a stable shape to the client: { value: string }
-    const value =
-      data?.value ||
-      data?.client_secret?.value ||
-      data?.clientSecret ||
-      data?.client_secret;
-
-    if (!r.ok || !value) {
+    if (!resp.ok) {
+      const text = await resp.text();
       return NextResponse.json(
-        { error: 'Failed to mint client secret', details: data },
-        { status: 500 }
+        { error: "Failed to create client secret", details: text },
+        { status: resp.status }
       );
     }
 
-    return NextResponse.json({ value });
-  } catch (e: any) {
+    const data = await resp.json();
+
+    // data.value is the ephemeral client secret (safe for browser use). :contentReference[oaicite:2]{index=2}
+    return NextResponse.json({ clientSecret: data.value });
+  } catch (err: any) {
     return NextResponse.json(
-      { error: e?.message || 'Unknown error minting client secret' },
+      { error: "Server error creating realtime session", details: String(err?.message ?? err) },
       { status: 500 }
     );
   }
