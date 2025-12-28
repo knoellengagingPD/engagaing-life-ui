@@ -1,29 +1,25 @@
 // src/app/api/realtime-session/route.ts
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs"; // keep this on Node (not Edge)
+export const runtime = "nodejs"; // important: not edge
 
 export async function POST() {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "Missing OPENAI_API_KEY env var on the server." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
     }
 
+    // Session config used to mint a client secret
     const sessionConfig = {
-      session: {
-        type: "realtime",
-        model: "gpt-realtime",
-        audio: {
-          output: { voice: "marin" },
-        },
-      },
+      type: "realtime",
+      model: "gpt-realtime",
+      audio: { output: { voice: "marin" } },
+      instructions:
+        "You are Engaging Purpose, a warm, concise voice interviewer. Ask one question at a time.",
     };
 
-    const resp = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+    const r = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -32,28 +28,24 @@ export async function POST() {
       body: JSON.stringify(sessionConfig),
     });
 
-    const data = await resp.json();
-
-    if (!resp.ok) {
+    const text = await r.text();
+    if (!r.ok) {
       return NextResponse.json(
-        { error: "Failed to create client secret", details: data },
-        { status: resp.status }
-      );
-    }
-
-    // Per docs: the ephemeral key is returned as `data.value`
-    if (!data?.value) {
-      return NextResponse.json(
-        { error: "Unexpected response from /v1/realtime/client_secrets", details: data },
+        { error: "Failed to mint client secret", status: r.status, details: text },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ clientSecret: data.value });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: "Server error creating realtime client secret", details: String(err?.message ?? err) },
-      { status: 500 }
-    );
+    const data = JSON.parse(text);
+
+    // Docs show the token as data.value (example ek_...) :contentReference[oaicite:2]{index=2}
+    const value = data?.value;
+    if (!value) {
+      return NextResponse.json({ error: "Missing value in client secret response", raw: data }, { status: 500 });
+    }
+
+    return NextResponse.json({ clientSecret: value });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 });
   }
 }
